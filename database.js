@@ -97,6 +97,8 @@ export async function getUsers() {
   }
 }
 
+
+
 export async function updateUser(user) {
   let conn;
   try {
@@ -123,6 +125,22 @@ export async function getUser(tgid) {
     if (conn) {
       conn.end()
       return res[0]
+    }
+  }
+}
+
+export async function getUser(tgid) {
+  let conn;
+  let hasEnoughMoney = false
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('SELECT * from users WHERE tgid = ?', tgid)
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
+      return hasEnoughMoney
     }
   }
 }

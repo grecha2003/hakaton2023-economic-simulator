@@ -97,23 +97,42 @@ bot.hears('Информация о бизнесах', async (ctx) => {
   await ctx.reply(`Ваши бизнесы: ${business?.length}`, Markup.inlineKeyboard(
     keys
   ))
+  ctx.session.state = 'list_business'
 });
 
 bot.on('callback_query', async (ctx) => {
   var msg = ctx.message;
-  if (ctx.session.state == 'business_detail') {
+
+  if (ctx.session.state == 'list_business') {
+    let business_id = ctx.callbackQuery.data
+    ctx.session.state = 'business_detail'
+    ctx.session.business_id = business_id
+
     let business = await db.getBusiness(ctx.session.business_id)
     let vars = db.BUSINESS_TYPES[business.type]
     let text = `Бизнес
 Тип: ${business.type}
-Статус: ${vars}
-Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}`
+Статус: ${vars.category}
+Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}
+Сотрудников: ${business.employees}/${vars.maxEmployeeCount}`
+    
+    let keys = [
+      [{text: 'Улучшить ($123)', callback_data: 'action_upgrade'},
+      {text: 'Нанять сотрудника ($100)', callback_data: 'action_hire'}]
+    ]
 
+    await ctx.editMessageText(text)
+    await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(keys).resize())
+  }
+  
+  if (ctx.session.state == 'business_detail') {
+    if (ctx.callbackQuery.data == 'action_upgrade') {
+      
+    } else if (ctx.callbackQuery.data == 'action_hire') {
+
+    }
   }
 
-  let business_id = ctx.callbackQuery.data
-  ctx.session.state = 'business_detail'
-  ctx.session.business_id = business_id
   await ctx.answerCbQuery()
 })
 
