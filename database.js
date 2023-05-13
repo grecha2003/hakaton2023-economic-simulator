@@ -8,7 +8,12 @@ export const pool = mariadb.createPool({
   connectionLimit: 10,
 })
 
-
+export const CATEGORIES = {
+  1: 'Низкий',
+  2: 'Средний',
+  3: 'Топ'
+}
+console.log(CATEGORIES[1])
 export const BUSINESS_TYPES = {
   'STORE': {
     profitPerEmployee: 5000,
@@ -17,7 +22,8 @@ export const BUSINESS_TYPES = {
     maxEmployeeCount: 15,
     startEmployeeCount: 10,
     category: 2,
-    equipmentMultiplier: [1.1, 1.2, 1.3]
+    equipmentMultiplier: [1.1, 1.2, 1.3],
+    friendlyName: 'Продуктовый магазин'
   },
   'GAS': {
     profitPerEmployee: 10000,
@@ -26,7 +32,8 @@ export const BUSINESS_TYPES = {
     maxEmployeeCount: 10,
     startEmployeeCount: 5,
     category: 3,
-    equipmentMultiplier: [1.1, 1.2, 1.3]
+    equipmentMultiplier: [1.1, 1.2, 1.3],
+    friendlyName: 'АЗС'
   },
   'FOOD': {
     profitPerEmployee: 10000,
@@ -35,7 +42,8 @@ export const BUSINESS_TYPES = {
     maxEmployeeCount: 7,
     startEmployeeCount: 5,
     category: 1,
-    equipmentMultiplier: [1.1, 1.2, 1.3]
+    equipmentMultiplier: [1.1, 1.2, 1.3],
+    friendlyName: 'Общепит'
   },
   'STO': {
     profitPerEmployee: 8000,
@@ -44,7 +52,8 @@ export const BUSINESS_TYPES = {
     maxEmployeeCount: 8,
     startEmployeeCount: 6,
     category: 2,
-    equipmentMultiplier: [1.1, 1.2, 1.3]
+    equipmentMultiplier: [1.1, 1.2, 1.3],
+    friendlyName: 'СТО'
   },
   'AUTO': {
     profitPerEmployee: 5000,
@@ -53,7 +62,8 @@ export const BUSINESS_TYPES = {
     maxEmployeeCount: 30,
     startEmployeeCount: 12,
     category: 3,
-    equipmentMultiplier: [1.1, 1.2, 1.3]
+    equipmentMultiplier: [1.1, 1.2, 1.3],
+    friendlyName: 'Автосалон'
   },
   'GUN': {
     profitPerEmployee: 20000,
@@ -62,7 +72,8 @@ export const BUSINESS_TYPES = {
     maxEmployeeCount: 7,
     startEmployeeCount: 5,
     category: 3,
-    equipmentMultiplier: [1.1, 1.2, 1.3]
+    equipmentMultiplier: [1.1, 1.2, 1.3],
+    friendlyName: 'Магазин оружия'
   },
 }
 
@@ -129,12 +140,18 @@ export async function getUser(tgid) {
   }
 }
 
-export async function getUser(tgid) {
+export async function removeMoney(tgid, cost) {
   let conn;
   let hasEnoughMoney = false
   try {
     conn = await pool.getConnection()
-    res = await conn.query('SELECT * from users WHERE tgid = ?', tgid)
+    let res = await conn.query('SELECT balance from users WHERE tgid = ?', tgid)
+    if (res[0].balance >= cost) {
+      hasEnoughMoney = true
+      await conn.query('UPDATE users SET balance = balance - ? WHERE tgid = ?', [cost, tgid])
+    } else {
+      return
+    }
   } catch (err) {
     throw err;
   } finally {
@@ -144,6 +161,7 @@ export async function getUser(tgid) {
     }
   }
 }
+removeMoney(1, 1)
 
 export async function listBusiness(tgid = null) {
   let conn;

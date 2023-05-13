@@ -7,21 +7,6 @@ import { session } from 'telegraf';
 import { MySQL } from "@telegraf/session/mysql";
 import * as db from './database.js';
 
-function getPagination( current, maxpage ) {
-  var keys = [];
-  if (current>1) keys.push({ text: `«1`, callback_data: '1' });
-  if (current>2) keys.push({ text: `‹${current-1}`, callback_data: (current-1).toString() });
-  keys.push({ text: `-${current}-`, callback_data: current.toString() });
-  if (current<maxpage-1) keys.push({ text: `${current+1}›`, callback_data: (current+1).toString() })
-  if (current<maxpage) keys.push({ text: `${maxpage}»`, callback_data: maxpage.toString() });
-
-  return {
-    reply_markup: JSON.stringify({
-      inline_keyboard: [ keys ]
-    })
-  };
-}
-
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -51,9 +36,9 @@ bot.start(async (ctx) => {
     ctx.session.state = ''
     await ctx.reply('Добро пожаловать! Выберите действие:', Markup
       .keyboard([
-        ['Получить прибыль', 'Информация о бизнесах'],
-        ['Чат участников', 'Настройки'],
-        ['Площадка продажи/покупки валюты']
+        ['Мой профиль', 'Мои бизнесы'],
+        ['Получить прибыль', 'Площадка продажи'],
+        ['Настройки', 'Чат участников']
       ])
       .resize()
     );
@@ -79,8 +64,8 @@ bot.hears('Получить прибыль', async (ctx) => {
   }
 });
 
-// Обработчик кнопки "Информация о бизнесах"
-bot.hears('Информация о бизнесах', async (ctx) => {
+// Обработчик кнопки "Мои бизнесы"
+bot.hears('Мои бизнесы', async (ctx) => {
   let business = await db.listBusiness(ctx.from.id)
   ctx.session.businessCount = business.length
   var keys = []
@@ -100,36 +85,76 @@ bot.hears('Информация о бизнесах', async (ctx) => {
   ctx.session.state = 'list_business'
 });
 
+async function editBusinessDataFromContext(ctx) {
+  let business = await db.getBusiness(ctx.session.business_id)
+  let vars = db.BUSINESS_TYPES[business.type]
+  let text = `Бизнес ${vars.friendlyName} 💹
+Статус: ${db.CATEGORIES[vars.category]}
+Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}
+Сотрудников: ${business.employees}/${vars.maxEmployeeCount}`
+  
+  let keys = [
+    [
+      {text: 'Улучшить ($123)', callback_data: 'action_upgrade'},
+      {text: 'Нанять сотрудника ($100)', callback_data: 'action_hire'}
+    ],
+    [
+      {text: 'Продать государству (50%)', callback_data: 'action_sell_to_state'},
+      {text: 'Продать игроку', callback_data: 'action_sell_to_user'}
+    ]
+  ]
+
+  await ctx.editMessageText(text, Markup.inlineKeyboard(keys).resize())
+}
+
 bot.on('callback_query', async (ctx) => {
   var msg = ctx.message;
-
+  
   if (ctx.session.state == 'list_business') {
     let business_id = ctx.callbackQuery.data
     ctx.session.state = 'business_detail'
     ctx.session.business_id = business_id
-
-    let business = await db.getBusiness(ctx.session.business_id)
-    let vars = db.BUSINESS_TYPES[business.type]
-    let text = `Бизнес
-Тип: ${business.type}
-Статус: ${vars.category}
-Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}
-Сотрудников: ${business.employees}/${vars.maxEmployeeCount}`
     
-    let keys = [
-      [{text: 'Улучшить ($123)', callback_data: 'action_upgrade'},
-      {text: 'Нанять сотрудника ($100)', callback_data: 'action_hire'}]
-    ]
-
-    await ctx.editMessageText(text)
-    await ctx.editMessageReplyMarkup(Markup.inlineKeyboard(keys).resize())
+    await editBusinessDataFromContext(ctx)
   }
   
   if (ctx.session.state == 'business_detail') {
+    let user = await db.getUser(ctx.from.id)
+    let business = await db.getBusiness(ctx.session.business_id)
+    let vars = db.BUSINESS_TYPES[business.type]
     if (ctx.callbackQuery.data == 'action_upgrade') {
-      
+      if (business.upgrades >= 3) {
+        ctx.reply('У вас и так максимальное улучшение')
+      } else {
+        if (db.removeMoney(ctx.from.id, 123)) {
+          business.upgrades += 1
+          await db.updateBusiness(business)
+          ctx.reply(`Бизнес теперь улучшен на ${business.upgrades}/3!`)
+        } else {
+          ctx.reply('Вам не хватает денег, чтобы улучшить бизнес.')
+        }
+      }
     } else if (ctx.callbackQuery.data == 'action_hire') {
-
+      if (business.employees >= vars.maxEmployeeCount) {
+        ctx.reply('В вашем бизнесе максимальное количество сотрудников.')
+      } else {
+        if (await db.removeMoney(ctx.from.id, 100)) {
+          business.employees += 1
+          await db.updateBusiness(business)
+          await editBusinessDataFromContext(ctx)
+          ctx.reply(`Вы наняли сотрудника! Теперь их ${business.employees}/${vars.maxEmployeeCount}.`)
+        } else {
+          ctx.reply('Вам не хватает денег, чтобы нанять нового сотрудника.')
+        }
+      }
+    } else if (ctx.callbackQuery.data == 'action_sell_to_state') {
+      user.balance += (vars.price * 0.5) % 1
+      await db.updateUser(user)
+      business.owner = null
+      await db.updateBusiness(business)
+      ctx.deleteMessage(ctx.callbackQuery.message.id)
+      ctx.reply('Вы продали бизнес государству, больше он вам не принадлежит')
+      ctx.session.state = ''
     }
   }
 
@@ -138,7 +163,9 @@ bot.on('callback_query', async (ctx) => {
 
 // Обработчик кнопки "Чат участников"
 bot.hears('Чат участников', (ctx) => {
-  ctx.reply('Вы находитесь в чате участников. Здесь вы можете общаться с другими участниками бота.');
+  ctx.reply('Залетайте в наш чат и обменивайтесь бизнесами с другими людьми! 🤑', Markup.inlineKeyboard([
+    Markup.button.url('Перейти в чат', 'https://t.me/+tcgVdSKiygY0Njky')
+  ]));
 });
 
 // Обработчик кнопки "Настройки"
@@ -146,8 +173,8 @@ bot.hears('Настройки', (ctx) => {
   ctx.reply('Вы находитесь в настройках. Здесь вы можете настроить различные параметры и предпочтения.');
 });
 
-// Обработчик кнопки "Площадка продажи/покупки валюты"
-bot.hears('Площадка продажи/покупки валюты', (ctx) => {
+// Обработчик кнопки "Площадка продажи"
+bot.hears('Площадка продажи', (ctx) => {
   ctx.reply('Вы находитесь на площадке продажи/покупки валюты. Здесь вы можете осуществлять операции с валютой.');
 });
 
@@ -159,9 +186,10 @@ bot.on('message', async (ctx) => {
 
     await ctx.reply('Добро пожаловать! Выберите действие:', Markup
       .keyboard([
-        ['Получить прибыль', 'Информация о бизнесах'],
+        ['Получить прибыль', 'Мои бизнесы'],
         ['Чат участников', 'Настройки'],
-        ['Площадка продажи/покупки валюты']
+        ['Площадка продажи', 'Карта бизнесов'],
+        ['Помощь по игре']
       ])
       .resize()
     );
