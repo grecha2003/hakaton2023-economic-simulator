@@ -88,20 +88,33 @@ bot.hears('Информация о бизнесах', async (ctx) => {
   if (business != undefined) {
     for (let bus of business) {
       const bustype = db.BUSINESS_TYPES[bus.type]
-      keys.push({text: `${bus.type} Ур.${bus.upgrades} - ${bus.employees}/${bustype.maxEmployeeCount}`})
+      keys.push([{
+        text: `${bus.type} Ур.${bus.upgrades} - ${bus.employees}/${bustype.maxEmployeeCount}`,
+        callback_data: `${bus.id}`
+      }])
     }
-
   }
   await ctx.reply(`Ваши бизнесы: ${business?.length}`, Markup.inlineKeyboard(
     keys
   ))
 });
 
-bot.on('callback_query', function (message) {
-  var msg = message.message;
-  console.log(message.session)
-  var editOptions = Object.assign({}, getPagination(parseInt(message.data), bookPages), { chat_id: msg.chat.id, message_id: msg.message_id});
-  bot.editMessageText('Page: ' + message.data, editOptions);
+bot.on('callback_query', async (ctx) => {
+  var msg = ctx.message;
+  if (ctx.session.state == 'business_detail') {
+    let business = await db.getBusiness(ctx.session.business_id)
+    let vars = db.BUSINESS_TYPES[business.type]
+    let text = `Бизнес
+Тип: ${business.type}
+Статус: ${vars}
+Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}`
+
+  }
+
+  let business_id = ctx.callbackQuery.data
+  ctx.session.state = 'business_detail'
+  ctx.session.business_id = business_id
+  await ctx.answerCbQuery()
 })
 
 // Обработчик кнопки "Чат участников"
