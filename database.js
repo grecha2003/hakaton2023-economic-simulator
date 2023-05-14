@@ -5,7 +5,7 @@ export const pool = mariadb.createPool({
   host: 'localhost',
   user: 'user',
   password: 'ilya333',
-  connectionLimit: 10,
+  connectionLimit: 9999,
 })
 
 export const CATEGORIES = {
@@ -23,7 +23,8 @@ export const BUSINESS_TYPES = {
     startEmployeeCount: 10,
     category: 2,
     equipmentMultiplier: [1.1, 1.2, 1.3],
-    friendlyName: 'Продуктовый магазин'
+    friendlyName: 'Продуктовый магазин',
+    employeeCount: 8000
   },
   'GAS': {
     profitPerEmployee: 10000,
@@ -33,7 +34,8 @@ export const BUSINESS_TYPES = {
     startEmployeeCount: 5,
     category: 3,
     equipmentMultiplier: [1.1, 1.2, 1.3],
-    friendlyName: 'АЗС'
+    friendlyName: 'АЗС',
+    employeeCount: 40000
   },
   'FOOD': {
     profitPerEmployee: 10000,
@@ -43,7 +45,8 @@ export const BUSINESS_TYPES = {
     startEmployeeCount: 5,
     category: 1,
     equipmentMultiplier: [1.1, 1.2, 1.3],
-    friendlyName: 'Общепит'
+    friendlyName: 'Общепит',
+    employeeCount: 15000
   },
   'STO': {
     profitPerEmployee: 8000,
@@ -53,7 +56,8 @@ export const BUSINESS_TYPES = {
     startEmployeeCount: 6,
     category: 2,
     equipmentMultiplier: [1.1, 1.2, 1.3],
-    friendlyName: 'СТО'
+    friendlyName: 'СТО',
+    employeeCount: 16000
   },
   'AUTO': {
     profitPerEmployee: 5000,
@@ -63,7 +67,8 @@ export const BUSINESS_TYPES = {
     startEmployeeCount: 12,
     category: 3,
     equipmentMultiplier: [1.1, 1.2, 1.3],
-    friendlyName: 'Автосалон'
+    friendlyName: 'Автосалон',
+    employeeCount: 15000,
   },
   'GUN': {
     profitPerEmployee: 20000,
@@ -73,7 +78,8 @@ export const BUSINESS_TYPES = {
     startEmployeeCount: 5,
     category: 3,
     equipmentMultiplier: [1.1, 1.2, 1.3],
-    friendlyName: 'Магазин оружия'
+    friendlyName: 'Магазин оружия',
+    employeeCount: 40000
   },
 }
 
@@ -136,6 +142,84 @@ export async function getUser(tgid) {
     if (conn) {
       conn.end()
       return res[0]
+    }
+  }
+}
+
+export async function getUserByUsername(name) {
+  let conn;
+  let res;
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('SELECT * from users WHERE name = ?', name)
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
+      return res[0]
+    }
+  }
+}
+
+export async function getTrades() {
+  let conn;
+  let res;
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('SELECT * from trades')
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
+      return res
+    }
+  }
+}
+
+export async function getTrade(id) {
+  let conn;
+  let res;
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('SELECT * from trades WHERE id = ?', id)
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
+      return res[0]
+    }
+  }
+}
+
+export async function addTrade(seller, buyer, price, business_id) {
+  let conn;
+  let res;
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('INSERT INTO trades (seller, buyer, price, business_id) VALUES (?, ?, ?, ?)', [seller, buyer, price, business_id])
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
+    }
+  }
+}
+
+export async function removeTrade(id) {
+  let conn;
+  let res;
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('DELETE FROM trades WHERE id = ?', [id])
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
     }
   }
 }
@@ -256,6 +340,22 @@ export async function tickGame(tgid) {
       conn.end();
     }
     return result;
+  }
+}
+
+export async function getTop15() {
+  let conn;
+  let res;
+  try {
+    conn = await pool.getConnection()
+    res = await conn.query('SELECT name, balance FROM users ORDER BY balance DESC LIMIT 15;')
+  } catch (err) {
+    throw err;
+  } finally {
+    if (conn) {
+      conn.end()
+      return res
+    }
   }
 }
 

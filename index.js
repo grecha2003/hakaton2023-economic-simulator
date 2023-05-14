@@ -22,6 +22,44 @@ const store = MySQL({
 // bot.use(session({ store }));
 bot.use(session( { store: store, defaultSession: () => ({}) }));
 
+bot.command('toplist', async ctx => {
+  var top = await db.getTop15()
+  let text = ''
+  let i = 1;
+  for (let user of top) {
+    text += `${i}. ${user.balance} - ${user.name}\n`
+    i += 1
+  }
+  ctx.reply('Топ 15 игроков за всё время:\n' +text)
+})
+
+bot.command('buybiz', async ctx => {
+  let args = ctx.message.text.split(' ')
+  let id = parseInt(args[1])
+  if (isNaN(id)) {
+    ctx.reply('Использование: /buybiz <id бизнеса>')
+    return
+  }
+  let business = await db.getBusiness(id)
+  let vars = db.BUSINESS_TYPES[business.type]
+  if (!business) {
+    ctx.reply('Данного бизнеса не существует 😢')
+  } else if (business.owner) {
+    if (business.owner != ctx.from.id) {
+      ctx.reply('Вы не можете купить бизнес, которым владеет другой человек')
+    } else {
+      ctx.reply('Вы уже владеете этим бизнесом.')
+    }
+  } else if (!business.owner) {
+    if (await db.removeMoney(ctx.from.id, vars.price)) {
+      business.owner = ctx.from.id
+      await db.updateBusiness(business)
+      ctx.reply(`Поздравляем 🎉\nВы купили бизнес ${vars.friendlyName} за ${vars.price}`)
+    } else {
+      ctx.reply('У вас недостаточно денег чтобы купить этот бизнес.')
+    }
+  }
+})
 
 // Обработчик команды /start
 bot.start(async (ctx) => {
@@ -36,10 +74,10 @@ bot.start(async (ctx) => {
     ctx.session.state = ''
     await ctx.reply('Добро пожаловать! Выберите действие:', Markup
       .keyboard([
-        ['Получить прибыль', 'Мои бизнесы'],
-        ['Чат участников', 'Настройки'],
-        ['Площадка продажи', 'Карта бизнесов'],
-        ['Помощь по игре']
+        ['Мой профиль', 'Мои бизнесы'],
+        ['Получить прибыль', 'Настройки'],
+        ['Площадка продажи', 'Карта предприятий'],
+        ['Помощь по игре', 'Чат участников']
       ])
       .resize()
     );
@@ -49,7 +87,7 @@ bot.start(async (ctx) => {
 bot.hears('Зарегистрироваться', async (ctx) => {
   console.log(ctx.session)
   ctx.session.state = 'wait_for_name'
-  await ctx.reply('Скажите, как вас называть?')
+  await ctx.reply('Скажите, как вас называть? (без пробелов)')
 })
 
 // Обработчик кнопки "Получить прибыль"
@@ -91,6 +129,7 @@ async function editBusinessDataFromContext(ctx) {
   let vars = db.BUSINESS_TYPES[business.type]
   let text = `Бизнес ${vars.friendlyName} 💹
 Статус: ${db.CATEGORIES[vars.category]}
+Уровень: ${business.upgrades}
 Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}
 Сотрудников: ${business.employees}/${vars.maxEmployeeCount}`
   
@@ -110,6 +149,11 @@ async function editBusinessDataFromContext(ctx) {
 
 bot.on('callback_query', async (ctx) => {
   var msg = ctx.message;
+
+  if (ctx.callbackQuery.data == 'change_name') {
+    ctx.reply('Введите свой новый ник')
+    ctx.session.state = 'wait_for_name'
+  }
 
   if (ctx.callbackQuery.data == 'Список команд') {
     ctx.replyWithHTML(
@@ -146,6 +190,43 @@ bot.on('callback_query', async (ctx) => {
     return
   };
   
+  if (ctx.callbackQuery.data == 'accept_trade') {
+    let trades = await db.getTrades()
+    for (let trade of trades) {
+      if (trade.buyer == ctx.callbackQuery.from.id) {
+        console.log(trade)
+        if (await db.removeMoney(ctx.callbackQuery.from.id, trade.price)) {
+          await ctx.reply(`Теперь вы владелец нового бизнеса за скромную цену в ${trade.price}!`)
+          let business = await db.getBusiness(trade.business_id)
+          business.owner = trade.buyer
+          await db.updateBusiness(business)
+
+          let seller = await db.getUser(trade.seller)
+          seller.balance += trade.price
+          await db.updateUser(seller)
+          await bot.telegram.sendMessage(trade.seller, `Сделка состоялась! Вы заработали ${trade.price}`)
+        } else {
+          await ctx.reply('У вас недостаточно денег, сделка сорвалась.')
+          await bot.telegram.sendMessage(trade.seller, `Сделка сорвалась! У другой стороны недостаточно денег.`)
+        }
+        await db.removeTrade(trade.id)
+        return
+      }
+    }
+    return
+  } else if (ctx.callbackQuery.data == 'decline_trade') {
+    let trades = await db.getTrades()
+    for (let trade of trades) {
+      if (trade.buyer == ctx.callbackQuery.from.id) {
+        await db.removeTrade(trade.id)
+        await ctx.reply('Вы отказались от сделки.')
+        await bot.telegram.sendMessage(trade.seller, `Сделка сорвалась! Другая сторона отказалась.`)
+        return
+      }
+    }
+    return
+  }
+
   if (ctx.session.state == 'list_business') {
     let business_id = ctx.callbackQuery.data
     ctx.session.state = 'business_detail'
@@ -153,9 +234,10 @@ bot.on('callback_query', async (ctx) => {
     
     await editBusinessDataFromContext(ctx)
   }
-  
+
   if (ctx.session.state == 'business_detail') {
     let user = await db.getUser(ctx.from.id)
+    console.log(ctx.session)
     let business = await db.getBusiness(ctx.session.business_id)
     let vars = db.BUSINESS_TYPES[business.type]
     if (ctx.callbackQuery.data == 'action_upgrade') {
@@ -184,18 +266,31 @@ bot.on('callback_query', async (ctx) => {
         }
       }
     } else if (ctx.callbackQuery.data == 'action_sell_to_state') {
-      user.balance += (vars.price * 0.5) % 1
+      user.balance += (vars.price * 0.5)
       await db.updateUser(user)
       business.owner = null
       await db.updateBusiness(business)
       ctx.deleteMessage(ctx.callbackQuery.message.id)
       ctx.reply('Вы продали бизнес государству, больше он вам не принадлежит')
       ctx.session.state = ''
+    } else if (ctx.callbackQuery.data == 'action_sell_to_user') {
+      ctx.session.state = 'sell_to_user_price'
+      ctx.reply('За сколько хотите продать свой бизнес?')
     }
   }
 
   await ctx.answerCbQuery()
 })
+
+bot.hears('Мой профиль', async (ctx) => {
+  let user = await db.getUser(ctx.from.id)
+  let businesses = await db.listBusiness(user.tgid)
+  let incomeday = user.lastIncomeDay ? user.lastIncomeDay.toDateString() : 'никогда'
+  ctx.reply(`Профиль ${user.name} 💼
+Баланс: ${user.balance}
+День сбора: ${incomeday}
+Количество бизнесов: ${businesses.length}`);
+});
 
 // Обработчик кнопки "Чат участников"
 bot.hears('Чат участников', (ctx) => {
@@ -206,7 +301,9 @@ bot.hears('Чат участников', (ctx) => {
 
 // Обработчик кнопки "Настройки"
 bot.hears('Настройки', (ctx) => {
-  ctx.reply('Вы находитесь в настройках. Здесь вы можете настроить различные параметры и предпочтения.');
+  ctx.reply('Настройки', Markup.inlineKeyboard([
+    Markup.button.callback('Сменить имя', 'change_name')
+  ]));
 });
 
 // Обработчик кнопки "Площадка продажи"
@@ -228,17 +325,61 @@ bot.hears('Помощь по игре', (ctx) => {
 });
  
 bot.on('message', async (ctx) => {
-  if (ctx.session.state == 'wait_for_name') {
+  if (ctx.session.state == 'sell_to_user_price') {
+    let price = parseInt(ctx.message.text)
+    if (isNaN(price)) {
+      ctx.reply('Напишите целое число в долларах')
+      return
+    }
+    ctx.session.sell_price = price
+    ctx.session.state = 'sell_to_user_user'
+    ctx.reply('Какому игроку хотите передать имущество? Напишите id или @никнейм')
+  }
+  else if (ctx.session.state == 'sell_to_user_user') {
+    let userid = parseInt(ctx.message.text)
+    if (isNaN(userid)) {
+      let user = await db.getUserByUsername(ctx.message.text)
+      if (!user) {
+        ctx.reply('Не нашли никого с этим ником 😢')
+        return
+      }
+      userid = user.tgid
+    }
+    let seller_user = await db.getUser(ctx.from.id)
+    let business = await db.getBusiness(ctx.session.business_id)
+    let vars = db.BUSINESS_TYPES[business.type]
+
+    await db.addTrade(seller_user.tgid, userid, ctx.session.sell_price, business.id)
+    
+    ctx.reply(`Отправили игроку предложение! Ждём ответа`)
+    bot.telegram.sendMessage(userid, `${seller_user.name} предлагает вам купить за ${ctx.session.sell_price}:
+Бизнес ${vars.friendlyName} 💹
+Статус: ${db.CATEGORIES[vars.category]}
+Уровень: ${business.upgrades}
+Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}
+Сотрудников: ${business.employees}/${vars.maxEmployeeCount}
+
+Вы согласны?`, Markup.inlineKeyboard([
+      [{text:'Да ✔', callback_data:'accept_trade'}, {text: 'Нет ❌', callback_data:'decline_trade'}]
+    ]).resize())
+  }
+  else if (ctx.session.state == 'wait_for_name') {
     ctx.session.state = ''
-    const name = ctx.message.text
-    await db.register(ctx.from.id, name, 500000)
+    const name = ctx.message.text.split(' ')[0]
+    let user = await db.getUser(ctx.from.id)
+    if (!user) {
+      await db.register(ctx.from.id, name, 500000)
+    } else {
+      user.name = name
+      await db.updateUser(user)
+    }
 
     await ctx.reply('Добро пожаловать! Выберите действие:', Markup
       .keyboard([
-        ['Получить прибыль', 'Мои бизнесы'],
-        ['Чат участников', 'Настройки'],
+        ['Мой профиль', 'Мои бизнесы'],
+        ['Получить прибыль', 'Настройки'],
         ['Площадка продажи', 'Карта предприятий'],
-        ['Помощь по игре']
+        ['Помощь по игре', 'Чат участников']
       ])
       .resize()
     );
