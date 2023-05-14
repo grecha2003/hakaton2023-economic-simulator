@@ -74,10 +74,10 @@ bot.start(async (ctx) => {
     ctx.session.state = ''
     await ctx.reply('Добро пожаловать! Выберите действие:', Markup
       .keyboard([
-        ['Получить прибыль', 'Мои бизнесы'],
-        ['Чат участников', 'Настройки'],
-        ['Площадка продажи', 'Карта бизнесов'],
-        ['Помощь по игре']
+        ['Мой профиль', 'Мои бизнесы'],
+        ['Получить прибыль', 'Настройки'],
+        ['Площадка продажи', 'Карта предприятий'],
+        ['Помощь по игре', 'Чат участников']
       ])
       .resize()
     );
@@ -129,7 +129,7 @@ async function editBusinessDataFromContext(ctx) {
   let vars = db.BUSINESS_TYPES[business.type]
   let text = `Бизнес ${vars.friendlyName} 💹
 Статус: ${db.CATEGORIES[vars.category]}
-Уровень: ${db.upgrades}
+Уровень: ${business.upgrades}
 Доходность: ${vars.profitPerEmployee * business.employees * vars.equipmentMultiplier[business.upgrades - 1]}
 Сотрудников: ${business.employees}/${vars.maxEmployeeCount}`
   
@@ -149,6 +149,11 @@ async function editBusinessDataFromContext(ctx) {
 
 bot.on('callback_query', async (ctx) => {
   var msg = ctx.message;
+
+  if (ctx.callbackQuery.data == 'change_name') {
+    ctx.reply('Введите свой новый ник')
+    ctx.session.state = 'wait_for_name'
+  }
 
   if (ctx.callbackQuery.data == 'Список команд') {
     ctx.replyWithHTML(
@@ -270,7 +275,9 @@ bot.hears('Чат участников', (ctx) => {
 
 // Обработчик кнопки "Настройки"
 bot.hears('Настройки', (ctx) => {
-  ctx.reply('Вы находитесь в настройках. Здесь вы можете настроить различные параметры и предпочтения.');
+  ctx.reply('Настройки', Markup.inlineKeyboard([
+    Markup.button.callback('Сменить имя', 'change_name')
+  ]));
 });
 
 // Обработчик кнопки "Площадка продажи"
@@ -333,14 +340,20 @@ bot.on('message', async (ctx) => {
   else if (ctx.session.state == 'wait_for_name') {
     ctx.session.state = ''
     const name = ctx.message.text.split(' ')[0]
-    await db.register(ctx.from.id, name, 500000)
+    let user = await db.getUser(ctx.from.id)
+    if (!user) {
+      await db.register(ctx.from.id, name, 500000)
+    } else {
+      user.name = name
+      await db.updateUser(user)
+    }
 
     await ctx.reply('Добро пожаловать! Выберите действие:', Markup
       .keyboard([
-        ['Получить прибыль', 'Мои бизнесы'],
-        ['Чат участников', 'Настройки'],
+        ['Мой профиль', 'Мои бизнесы'],
+        ['Получить прибыль', 'Настройки'],
         ['Площадка продажи', 'Карта предприятий'],
-        ['Помощь по игре']
+        ['Помощь по игре', 'Чат участников']
       ])
       .resize()
     );
